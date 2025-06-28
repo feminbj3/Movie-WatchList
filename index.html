@@ -4,11 +4,29 @@
     <meta charset="UTF-8" />
     <title>Movie Watchlist</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- ✅ Injected environment variables into the browser via window.ENV -->
+    <script>
+      // These values will be replaced with Netlify environment variables
+      window.ENV = {
+        FIREBASE_API_KEY: "{{FIREBASE_API_KEY}}",
+        FIREBASE_AUTH_DOMAIN: "{{FIREBASE_AUTH_DOMAIN}}",
+        FIREBASE_PROJECT_ID: "{{FIREBASE_PROJECT_ID}}",
+        FIREBASE_STORAGE_BUCKET: "{{FIREBASE_STORAGE_BUCKET}}",
+        FIREBASE_MSG_SENDER_ID: "{{FIREBASE_MSG_SENDER_ID}}",
+        FIREBASE_APP_ID: "{{FIREBASE_APP_ID}}",
+        FIREBASE_MEASUREMENT_ID: "{{FIREBASE_MEASUREMENT_ID}}",
+        OMDB_API_KEY: "{{OMDB_API_KEY}}"
+      };
+    </script>
+
+    <!-- ✅ config.js will now use these values -->
+    <script src="config.js"></script>
+
     <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
-    <!-- Configuration will be loaded from environment variables -->
-    <!-- Style -->
+
     <style>
       :root {
         --primary: #22223b;
@@ -119,33 +137,12 @@
         color: var(--secondary);
         font-size: 0.95rem;
       }
-      .error-message {
-        color: #d32f2f;
-        background: #ffebee;
-        padding: 1rem;
-        border-radius: var(--radius);
-        border-left: 4px solid #d32f2f;
-        margin: 1rem 0;
-      }
-      .loading {
-        text-align: center;
-        padding: 2rem;
-        color: var(--secondary);
-      }
       @media (max-width: 600px) {
-        header {
-          padding: 1rem;
-          flex-direction: column;
-          gap: 1rem;
-        }
         main {
           padding: 1rem;
         }
         .movies-grid {
           grid-template-columns: 1fr 1fr;
-        }
-        .search-bar {
-          flex-direction: column;
         }
       }
       @media (max-width: 400px) {
@@ -186,48 +183,14 @@
       </section>
     </main>
     <script>
-      // --- Load Configuration from Netlify Environment Variables ---
-      const config = {
-        firebase: {
-          apiKey: "%%FIREBASE_API_KEY%%",
-          authDomain: "%%FIREBASE_AUTH_DOMAIN%%",
-          projectId: "%%FIREBASE_PROJECT_ID%%",
-          storageBucket: "%%FIREBASE_STORAGE_BUCKET%%",
-          messagingSenderId: "%%FIREBASE_MESSAGING_SENDER_ID%%",
-          appId: "%%FIREBASE_APP_ID%%",
-          measurementId: "%%FIREBASE_MEASUREMENT_ID%%"
-        },
-        omdb: {
-          apiKey: "%%OMDB_API_KEY%%"
-        }
-      };
+      // --- Use Config from config.js ---
+      const config = window.APP_CONFIG;
 
-      // Validate config - check if environment variables were replaced
-      if (config.firebase.apiKey.includes('%%') || config.omdb.apiKey.includes('%%')) {
-        document.body.innerHTML = `
-          <div class="error-message">
-            <h2>Configuration Error</h2>
-            <p>Environment variables not properly configured. Please check your Netlify environment settings.</p>
-          </div>
-        `;
-        throw new Error('Environment variables not configured');
-      }
+      // Firebase Setup
+      firebase.initializeApp(config.firebase);
+      const auth = firebase.auth();
 
-      // --- Firebase Setup ---
-      try {
-        firebase.initializeApp(config.firebase);
-        const auth = firebase.auth();
-      } catch (error) {
-        document.body.innerHTML = `
-          <div class="error-message">
-            <h2>Firebase Error</h2>
-            <p>Failed to initialize Firebase: ${error.message}</p>
-          </div>
-        `;
-        throw error;
-      }
-
-      // --- DOM Elements ---
+      // DOM Elements
       const loginBtn = document.getElementById('login-btn');
       const logoutBtn = document.getElementById('logout-btn');
       const userInfo = document.getElementById('user-info');
@@ -238,70 +201,40 @@
       const searchResults = document.getElementById('search-results');
       const watchlistGrid = document.getElementById('watchlist');
 
-      // --- Watchlist Storage (In-memory for client-side storage) ---
       let watchlistData = {};
 
       function getWatchlistKey(uid) {
         return `watchlist_${uid}`;
       }
-      
       function getWatchlist(uid) {
-        // Try to load from localStorage first, fallback to memory
-        try {
-          const stored = localStorage.getItem(getWatchlistKey(uid));
-          if (stored) {
-            return JSON.parse(stored);
-          }
-        } catch (e) {
-          console.warn('localStorage not available, using memory storage');
-        }
         return watchlistData[uid] || [];
       }
-      
       function saveWatchlist(uid, list) {
-        // Save to both localStorage and memory
         watchlistData[uid] = list;
-        try {
-          localStorage.setItem(getWatchlistKey(uid), JSON.stringify(list));
-        } catch (e) {
-          console.warn('localStorage not available, using memory storage only');
-        }
       }
 
-      // --- Auth Handlers ---
       loginBtn.onclick = () => {
         const provider = new firebase.auth.GoogleAuthProvider();
-        auth.signInWithPopup(provider).catch((error) => {
-          console.error('Login error:', error);
-          alert('Login failed. Please try again.');
-        });
+        auth.signInWithPopup(provider);
       };
-      
-      logoutBtn.onclick = () => {
-        auth.signOut().catch((error) => {
-          console.error('Logout error:', error);
-        });
-      };
+      logoutBtn.onclick = () => auth.signOut();
 
       auth.onAuthStateChanged((user) => {
         if (user) {
-          // Show user info
           userInfo.style.display = 'flex';
           loginBtn.style.display = 'none';
-          userPic.src = user.photoURL || 'https://via.placeholder.com/40x40?text=👤';
-          userName.textContent = user.displayName || 'User';
-          // Load watchlist
+          userPic.src = user.photoURL;
+          userName.textContent = user.displayName;
           renderWatchlist();
         } else {
           userInfo.style.display = 'none';
           loginBtn.style.display = 'block';
           userPic.src = '';
           userName.textContent = '';
-          watchlistGrid.innerHTML = '<div>Please log in to see your watchlist.</div>';
+          watchlistGrid.innerHTML = '';
         }
       });
 
-      // --- Movie Search ---
       searchBtn.onclick = searchMovies;
       searchInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') searchMovies();
@@ -309,64 +242,43 @@
 
       function searchMovies() {
         const query = searchInput.value.trim();
-        if (!query) {
-          alert('Please enter a movie title to search.');
-          return;
-        }
-        
-        searchResults.innerHTML = '<div class="loading">🔍 Searching for movies...</div>';
-        
+        if (!query) return;
+        searchResults.innerHTML = '<div>Loading...</div>';
         fetch(
-          `https://www.omdbapi.com/?apikey=${config.omdb.apiKey}&s=${encodeURIComponent(query)}&type=movie`
+          `https://www.omdbapi.com/?apikey=${config.omdb.apiKey}&s=${encodeURIComponent(query)}`
         )
-          .then((res) => {
-            if (!res.ok) {
-              throw new Error(`HTTP error! status: ${res.status}`);
-            }
-            return res.json();
-          })
+          .then((res) => res.json())
           .then((data) => {
             if (data.Response === 'True') {
               renderMovies(data.Search, searchResults, true);
             } else {
-              searchResults.innerHTML = `<div>No movies found for "${query}". Try a different search term.</div>`;
+              searchResults.innerHTML = `<div>No results found.</div>`;
             }
           })
-          .catch((error) => {
-            console.error('Search error:', error);
-            searchResults.innerHTML = `<div class="error-message">Error searching for movies. Please check your internet connection and try again.</div>`;
+          .catch(() => {
+            searchResults.innerHTML = `<div>Error fetching data.</div>`;
           });
       }
 
-      // --- Render Movies ---
       function renderMovies(movies, container, canAdd) {
         container.innerHTML = '';
         movies.forEach((movie) => {
           const card = document.createElement('div');
           card.className = 'movie-card';
-          
-          const posterUrl = movie.Poster !== 'N/A' 
-            ? movie.Poster 
-            : 'https://via.placeholder.com/100x150?text=No+Image';
-            
           card.innerHTML = `
-            <img src="${posterUrl}" alt="${movie.Title} Poster" onerror="this.src='https://via.placeholder.com/100x150?text=No+Image'">
+            <img src="${movie.Poster !== 'N/A'
+              ? movie.Poster
+              : 'https://via.placeholder.com/100x150?text=No+Image'}" alt="Poster">
             <div class="movie-title">${movie.Title}</div>
             <div class="movie-year">${movie.Year}</div>
           `;
-          
           if (canAdd && auth.currentUser) {
-            const watchlist = getWatchlist(auth.currentUser.uid);
-            const isInWatchlist = watchlist.find((m) => m.imdbID === movie.imdbID);
-            
             const addBtn = document.createElement('button');
             addBtn.className = 'btn';
-            addBtn.textContent = isInWatchlist ? 'In Watchlist' : 'Add to Watchlist';
-            addBtn.disabled = isInWatchlist;
+            addBtn.textContent = 'Add to Watchlist';
             addBtn.onclick = () => addToWatchlist(movie);
             card.appendChild(addBtn);
           }
-          
           if (!canAdd) {
             const removeBtn = document.createElement('button');
             removeBtn.className = 'btn';
@@ -374,52 +286,40 @@
             removeBtn.onclick = () => removeFromWatchlist(movie.imdbID);
             card.appendChild(removeBtn);
           }
-          
           container.appendChild(card);
         });
       }
 
-      // --- Watchlist Handlers ---
       function addToWatchlist(movie) {
         const user = auth.currentUser;
-        if (!user) {
-          alert('Please log in to add movies to your watchlist.');
-          return;
-        }
-        
+        if (!user) return;
         let list = getWatchlist(user.uid);
         if (!list.find((m) => m.imdbID === movie.imdbID)) {
           list.push(movie);
           saveWatchlist(user.uid, list);
           renderWatchlist();
-          // Refresh search results to show updated button states
-          const query = searchInput.value.trim();
-          if (query) {
-            searchMovies();
-          }
         }
       }
-      
+
       function removeFromWatchlist(imdbID) {
         const user = auth.currentUser;
         if (!user) return;
-        
         let list = getWatchlist(user.uid);
         list = list.filter((m) => m.imdbID !== imdbID);
         saveWatchlist(user.uid, list);
         renderWatchlist();
       }
-      
+
       function renderWatchlist() {
         const user = auth.currentUser;
         if (!user) {
-          watchlistGrid.innerHTML = '<div>Please log in to see your watchlist.</div>';
+          watchlistGrid.innerHTML =
+            '<div>Please log in to see your watchlist.</div>';
           return;
         }
-        
         const list = getWatchlist(user.uid);
         if (list.length === 0) {
-          watchlistGrid.innerHTML = '<div>Your watchlist is empty. Search for movies above to add them!</div>';
+          watchlistGrid.innerHTML = '<div>Your watchlist is empty.</div>';
         } else {
           renderMovies(list, watchlistGrid, false);
         }
